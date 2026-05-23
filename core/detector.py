@@ -33,6 +33,11 @@ class MediaDetector:
         from api.metadata import MetadataAPI
         self.api_detector = MetadataAPI()
 
+    NON_LATIN = re.compile(r'[^\x00-\x7F]')
+
+    def _needs_enrichment(self, filename: str) -> bool:
+        return bool(self.NON_LATIN.search(filename))
+
     def detect(self, filepath: str | Path, quick: bool = False) -> dict:
         """Detect media type using all levels. Returns result dict."""
         path = Path(filepath)
@@ -43,7 +48,7 @@ class MediaDetector:
 
         # Level 2: API lookup for English title enrichment
         api_result = None
-        if not quick:
+        if not quick and self._needs_enrichment(filename):
             api_result = self._level2_api_lookup(filename, filepath)
 
         if level1_result and api_result and api_result.get('title'):
@@ -164,7 +169,10 @@ class MediaDetector:
         """Level 2: Metadata API lookup (TMDB/TVDB/OMDb)."""
         try:
             import asyncio
-            result = asyncio.run(self.api_detector.search(filename))
+            clean = self._clean_for_api(filename)
+            if not clean:
+                return None
+            result = asyncio.run(self.api_detector.search(clean))
             if result:
                 return {
                     'type': result['type'],
@@ -184,6 +192,18 @@ class MediaDetector:
             logger.warning(f"API lookup failed for '{filename}': {e}")
 
         return None
+
+    def _clean_for_api(self, filename: str) -> str:
+        cleaned = re.sub(r'[sS]\d{1,2}[eEx]\d{1,2}', '', filename)
+        cleaned = re.sub(r'\d{1,2}x\d{1,2}', '', cleaned)
+        cleaned = re.sub(r'season\s*\d+\s*episode\s*\d+', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch)', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\[.*?\]', '', cleaned)
+        cleaned = re.sub(r'\(.*?\)', '', cleaned)
+        cleaned = re.sub(r'[-_.\s]+', ' ', cleaned).strip()
+        cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
+        cleaned = re.sub(r'\b(19|20)\d{2}\b', '', cleaned).strip()
+        return cleaned if cleaned else filename
 
     def _clean_title(self, filename: str, season: str | None, episode: str | None) -> str:
         """Clean filename to extract title."""

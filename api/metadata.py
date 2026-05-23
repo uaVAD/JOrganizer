@@ -45,8 +45,8 @@ class MetadataAPI:
         """Search TMDB for movie or TV show using shared session."""
         try:
             session = await self._get_session()
-            movie_params = {"api_key": self.tmdb_key, "query": title}
-            tv_params = {"api_key": self.tmdb_key, "query": title}
+            movie_params = {"api_key": self.tmdb_key, "query": title, "language": "en-US"}
+            tv_params = {"api_key": self.tmdb_key, "query": title, "language": "en-US"}
             if year:
                 movie_params["year"] = str(year)
                 tv_params["first_air_date_year"] = str(year)
