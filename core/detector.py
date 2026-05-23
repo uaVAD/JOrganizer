@@ -220,12 +220,14 @@ class MediaDetector:
         cleaned = re.sub(r'[sS]\d{1,2}[eEx]\d{1,2}', '', filename)
         cleaned = re.sub(r'\d{1,2}x\d{1,2}', '', cleaned)
         cleaned = re.sub(r'season\s*\d+\s*episode\s*\d+', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'[-_\s]+\d{1,3}$', '', cleaned)
         cleaned = re.sub(r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch)', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\[.*?\]', '', cleaned)
         cleaned = re.sub(r'\(.*?\)', '', cleaned)
         cleaned = re.sub(r'[-_.\s]+', ' ', cleaned).strip()
         cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
         cleaned = re.sub(r'\b(19|20)\d{2}\b', '', cleaned).strip()
+        cleaned = re.sub(r'\s+\d{1,2}$', '', cleaned).strip()
         return cleaned if cleaned else filename
 
     def _clean_title(self, filename: str, season: str | None, episode: str | None) -> str:

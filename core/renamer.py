@@ -13,7 +13,7 @@ class Renamer:
     def rename_tv(self, show_name: str, season: int | None, episode: int | None, year: int | None = None, episode_title: str | None = None) -> str:
         s = f"{season or 1:02d}"
         e = f"{episode or 1:02d}"
-        name = f"{show_name} - S{s}E{e}" if not year else f"{show_name} ({year}) - S{s}E{e}"
+        name = f"{show_name} - S{s}E{e}"
         if episode_title:
             name += f" - {episode_title}"
         return f"{name}"

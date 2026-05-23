@@ -77,7 +77,7 @@ class MetadataAPI:
                 return {
                     "type": mtype,
                     "title": item.get("title"),
-                    "year": item.get("release_date"),
+                    "year": int(item["release_date"][:4]) if item.get("release_date") else None,
                     "tmdb_id": item.get("id"),
                     "genre_ids": genre_ids,
                     "original_language": orig_lang,
@@ -91,7 +91,7 @@ class MetadataAPI:
                 return {
                     "type": "anime" if is_anime else "tv",
                     "title": item.get("name"),
-                    "year": item.get("first_air_date"),
+                    "year": int(item["first_air_date"][:4]) if item.get("first_air_date") else None,
                     "tmdb_id": item.get("id"),
                     "genre_ids": genre_ids,
                     "origin_country": origin_country,

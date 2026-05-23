@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 
-VERSION = "v0.3.4"
+VERSION = "v0.4.1"
 APP_NAME = "JOrganizer"
 
 if getattr(sys, 'frozen', False):
