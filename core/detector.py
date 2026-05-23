@@ -40,16 +40,31 @@ class MediaDetector:
 
         # Level 1: Regex matching
         level1_result = self._level1_regex(filename, filepath)
+
+        # Level 2: API lookup for English title enrichment
+        api_result = None
+        if not quick:
+            api_result = self._level2_api_lookup(filename, filepath)
+
+        if level1_result and api_result and api_result.get('title'):
+            level1_result['title'] = api_result['title']
+            level1_result['year'] = api_result.get('year', level1_result.get('year'))
+            level1_result['confidence'] = max(
+                level1_result.get('confidence', 0),
+                api_result.get('confidence', 0)
+            )
+            level1_result['level'] = 2
+            level1_result['method'] = 'regex+api'
+            logger.debug(f"Level 1+API enriched: {api_result['title']} for {filename}")
+            return level1_result
+
         if level1_result:
             logger.debug(f"Level 1 detected: {level1_result['type']} for {filename}")
             return level1_result
 
-        # Level 2: API lookup (skip in quick mode)
-        if not quick:
-            level2_result = self._level2_api_lookup(filename, filepath)
-            if level2_result:
-                logger.debug(f"Level 2 detected: {level2_result['type']} for {filename}")
-                return level2_result
+        if api_result:
+            logger.debug(f"Level 2 detected: {api_result['type']} for {filename}")
+            return api_result
 
         # Level 3: Ask user
         return {
