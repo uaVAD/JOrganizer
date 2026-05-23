@@ -35,17 +35,16 @@ class OperationsManager:
                 result.append(f)
         return result
 
-    def preview(self, files: list, destination: Path | str) -> list[dict]:
+    def preview(self, files: list, destination: Path | str = None) -> list[dict]:
         """Simulate operations without making changes. Returns preview."""
         file_list = self._normalize_files(files)
-        dest = Path(destination)
         preview = []
 
         for file_info in file_list:
             try:
                 src_path = Path(file_info['path'])
                 new_name = src_path.name
-                target = dest / src_path.parent.name / new_name
+                target = Path(destination) / src_path.parent.name / new_name if destination else None
 
                 if self.detector and self.renamer and self.organizer:
                     result = self.detector.detect(file_info['path'])
@@ -56,10 +55,12 @@ class OperationsManager:
 
                 preview.append({
                     'source': str(src_path),
-                    'dest': str(target),
+                    'dest': str(target) if target else None,
                     'name': src_path.name,
                     'type': det_result.get('type', 'unknown') if det_result else 'unknown',
                     'detection': det_result,
+                    'original': str(src_path),
+                    'target': str(target) if target else None,
                 })
             except Exception as e:
                 logger.error(f"Preview failed for {file_info['path']}: {e}")
@@ -70,29 +71,11 @@ class OperationsManager:
                     'type': 'unknown',
                     'detection': None,
                     'error': str(e),
+                    'original': file_info.get('path', ''),
+                    'target': None,
                 })
 
         return preview
-
-    def dry_run(self, files: list[dict], organizer, renamer, detector) -> list[dict]:
-        """Simulate operations using explicit pipeline. Delegates to preview()."""
-        old_detector = self.detector
-        old_renamer = self.renamer
-        old_organizer = self.organizer
-        self.set_pipeline(detector, renamer, organizer)
-
-        results = self.preview(files, Path())
-
-        self.set_pipeline(old_detector, old_renamer, old_organizer)
-
-        return [{
-            'original': r['source'],
-            'target': r['dest'],
-            'name': r['name'],
-            'type': r['type'],
-            'result': r['detection'],
-            'new_filename': Path(r['dest']).name if r['dest'] else None,
-        } for r in results]
 
     def execute(self, preview: list[dict], force: bool = False) -> list[dict]:
         """Execute operations from preview. Returns results."""
@@ -114,11 +97,21 @@ class OperationsManager:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(original), str(target))
 
+                src_parent = Path(original).parent
+                try:
+                    src_parent.rmdir()
+                except OSError:
+                    pass
+
                 results.append({'original': original, 'target': target, 'success': True})
                 logger.info(f"Moved: {original} -> {target}")
 
             except Exception as e:
                 logger.error(f"Failed to move {original}: {e}")
+                try:
+                    Path(target).parent.rmdir()
+                except OSError:
+                    pass
                 results.append({'original': original, 'target': target, 'success': False, 'error': str(e)})
 
         return results
