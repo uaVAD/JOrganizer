@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor, QIcon
 
-from config.settings import COLORS, DB_PATH
+from config.settings import COLORS, DB_PATH, BASE_DIR
 from core.controller import AppController
 from database import Database
 from core.translator import Translator
@@ -58,7 +58,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setMinimumSize(1200, 800)
         self._db = Database(DB_PATH)
-        self.tr = Translator(Path(__file__).parent.parent / 'languages')
+        self._init_user_languages()
+        self.tr = Translator(
+            Path(__file__).parent.parent / 'languages',
+            BASE_DIR / 'languages'
+        )
         self.ctrl = AppController(self._db)
         self.selected_files = []
         self.dry_run_preview = []
@@ -75,6 +79,17 @@ class MainWindow(QMainWindow):
         self._auto_save_timer = QTimer(self)
         self._auto_save_timer.timeout.connect(self._save_settings)
         self._auto_save_timer.start(30000)
+
+    def _init_user_languages(self):
+        user_lang_dir = BASE_DIR / 'languages'
+        if not user_lang_dir.exists():
+            user_lang_dir.mkdir(parents=True)
+            builtin_dir = Path(__file__).parent.parent / 'languages'
+            if builtin_dir.exists():
+                for f in builtin_dir.glob('*.json'):
+                    import shutil
+                    shutil.copy2(str(f), str(user_lang_dir / f.name))
+                self._log(f'Default languages copied to {user_lang_dir}')
 
     def _init_ui(self):
         central = QWidget()
