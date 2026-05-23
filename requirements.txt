@@ -1,0 +1,16 @@
+# UI Framework
+PyQt6>=6.6.0
+
+# Media Detection
+requests>=2.31.0
+aiohttp>=3.9.0
+
+# File handling
+python-slugify>=8.0.0
+
+# Monitoring (Auto Watch)
+watchdog>=3.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-qt>=4.2.0

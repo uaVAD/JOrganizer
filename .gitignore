@@ -1,0 +1,31 @@
+# Byte-compiled
+__pycache__/
+*.py[cod]
+*.pyo
+
+# User data (SQLite database, logs, cache)
+data.db
+*.db
+logs/
+*.log
+
+# Build outputs
+build/
+dist/
+*.exe
+
+# Environment & secrets
+.env
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Test cache
+.pytest_cache/
