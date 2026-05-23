@@ -73,6 +73,7 @@ class MediaDetector:
             api_result = self._level2_api_lookup(filename, filepath)
 
         if level1_result and api_result and api_result.get('title'):
+            # Merge API English title into regex result
             level1_result['title'] = api_result['title']
             level1_result['year'] = api_result.get('year', level1_result.get('year'))
             level1_result['confidence'] = max(
