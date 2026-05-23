@@ -46,7 +46,7 @@
     "preview_rename": "New Name",
     "unrecognized_desc": "The following files could not be identified automatically.\nSelect a destination category for each item, or skip them.",
     "detected_na": "Detected type: NA",
-    "skip_item": "\u2014 Skip \u2014",
+    "skip_item": "— Skip —",
     "skip_all": "Skip All",
     "apply_selection": "Apply Selection",
     "cancel_process": "Cancel Process",
