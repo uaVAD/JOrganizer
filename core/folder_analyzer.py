@@ -180,22 +180,36 @@ class FolderAnalyzer:
         year = int(year_match.group(1)) if year_match else None
         cleaned = self._clean_for_tmdb(folder_name, year)
 
+        result = {'type': 'unknown', 'tmdb_title': None, 'tmdb_id': None, 'year': None, 'confidence': 0.0}
+
         # 1. TMDB with original + year
         api_result = self._try_tmdb(cleaned, year)
+        if not api_result:
+            api_result = self._try_tmdb(cleaned, None)
         if api_result:
-            return api_result
+            result['type'] = api_result['type']
+            result['tmdb_id'] = api_result.get('tmdb_id')
+            result['year'] = api_result.get('year')
+            result['confidence'] = api_result.get('confidence', 0.0)
 
-        # 2. TMDB with original, no year
-        api_result = self._try_tmdb(cleaned, None)
-        if api_result:
-            return api_result
+        # 2. AniList fallback (only if TMDB didn't match)
+        if result['type'] == 'unknown':
+            api_result = self._try_anilist(cleaned)
+            if api_result:
+                result['type'] = api_result['type']
+                result['year'] = api_result.get('year')
+                result['confidence'] = api_result.get('confidence', 0.0)
 
-        # 3. AniList fallback (exact title match only)
-        api_result = self._try_anilist(cleaned)
-        if api_result:
-            return api_result
+        # 3. Fallback to file content types
+        if result['type'] == 'unknown' and file_types:
+            if 'anime' in file_types:
+                result['type'] = 'anime'
+            elif 'tv' in file_types:
+                result['type'] = 'tv'
+            elif 'movie' in file_types:
+                result['type'] = 'movie'
 
-        return {'type': 'unknown', 'tmdb_title': None, 'tmdb_id': None, 'year': None, 'confidence': 0.0}
+        return result
 
     def _clean_for_tmdb(self, name: str, year: int | None = None) -> str:
         """Clean folder name for TMDB search."""
@@ -204,6 +218,7 @@ class FolderAnalyzer:
         cleaned = re.sub(r'\(.*?\)', '', cleaned)
         cleaned = re.sub(r'[-_.\s]+', ' ', cleaned).strip()
         cleaned = re.sub(r'\s+(Season|Saison|Temporada)\s*\d+$', '', cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r'\s+\d{1,2}$', '', cleaned).strip()
         if year:
             cleaned = re.sub(rf'\b{year}\b', '', cleaned).strip()
         return cleaned if cleaned else name
