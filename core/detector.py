@@ -38,13 +38,34 @@ class MediaDetector:
     def _needs_enrichment(self, filename: str) -> bool:
         return bool(self.NON_LATIN.search(filename))
 
+    @staticmethod
+    def _parent_info(filepath: str) -> dict:
+        parent = Path(filepath).parent.name
+        m = re.search(r'\s(\d{1,2})$', parent)
+        if m:
+            return {'base': parent[:m.start()], 'season': int(m.group(1))}
+        return {'base': parent, 'season': None}
+
     def detect(self, filepath: str | Path, quick: bool = False) -> dict:
         """Detect media type using all levels. Returns result dict."""
         path = Path(filepath)
         filename = path.stem
+        parent = self._parent_info(filepath)
 
         # Level 1: Regex matching
-        level1_result = self._level1_regex(filename, filepath)
+        level1_result = self._level1_regex(filename, filepath, parent)
+
+        # Inject parent folder season if file level 1 didn't get a real season
+        if level1_result and parent['season'] is not None:
+            has_explicit = 'season' in filename.lower() or re.search(r'[sS]\d{1,2}[eEx]', filename)
+            if level1_result.get('season') is None or (
+                level1_result['season'] == 1 and not has_explicit
+            ):
+                level1_result['season'] = parent['season']
+            if parent['base'].lower() in level1_result['title'].lower():
+                level1_result['title'] = re.sub(
+                    rf'\s{parent["season"]}$', '', level1_result['title']
+                )
 
         # Level 2: API lookup for English title enrichment
         api_result = None
@@ -85,7 +106,7 @@ class MediaDetector:
             'method': 'user_confirmation',
         }
 
-    def _level1_regex(self, filename: str, filepath: str) -> dict | None:
+    def _level1_regex(self, filename: str, filepath: str, parent: dict | None = None) -> dict | None:
         """Level 1: Regex pattern matching."""
         has_episode_num = self.ANIME_EPISODE.search(filename)
         is_anime = bool(self.ANIME_PATTERN.search(filename) or has_episode_num)
@@ -126,7 +147,9 @@ class MediaDetector:
                 episode = episode_match.group(1)
                 filename = filename[:episode_match.start()] + filename[episode_match.end():]
             if episode and not season:
-                season = 1
+                season = parent['season'] if (parent and parent['season'] is not None) else 1
+                if parent and parent['season'] is not None:
+                    filename = re.sub(rf'\s{parent["season"]}$', '', filename)
 
             quality = self.QUALITY_PATTERN.search(filename)
             source = self.SOURCE_PATTERN.search(filename)
