@@ -21,28 +21,33 @@ class DuplicateDetector:
                 if f.is_file():
                     existing_files.append(f)
 
-        existing_names = {f.name.lower(): f for f in existing_files}
-
         for file_info in files:
-            filename = file_info['name']
+            filename = file_info.get('name', '')
+            file_parent = Path(file_info.get('path', '')).parent
+            file_size = file_info.get('size', 0)
+            is_dup = False
 
-            if filename.lower() in existing_names:
-                resolution = self._resolve(file_info, mode=self.mode)
-                duplicates.append({
-                    'file': file_info,
-                    'resolution': resolution,
-                })
+            for existing_path in existing_files:
+                name_match = existing_path.name.lower() == filename.lower()
+                same_dir = existing_path.parent == destination or existing_path.parent == file_parent
+                if name_match and same_dir:
+                    resolution = self._resolve(file_info, mode=self.mode)
+                    duplicates.append({'file': file_info, 'resolution': resolution})
+                    is_dup = True
+                    break
+
+            if is_dup:
                 continue
 
             for existing_path in existing_files:
+                same_dir = existing_path.parent == destination or existing_path.parent == file_parent
+                if not same_dir:
+                    continue
                 try:
                     existing_size = existing_path.stat().st_size
-                    if abs(existing_size - file_info['size']) < 1024:
+                    if file_size and abs(existing_size - file_size) < 1024:
                         resolution = self._resolve(file_info, mode='ask')
-                        duplicates.append({
-                            'file': file_info,
-                            'resolution': resolution,
-                        })
+                        duplicates.append({'file': file_info, 'resolution': resolution})
                         break
                 except OSError:
                     pass
