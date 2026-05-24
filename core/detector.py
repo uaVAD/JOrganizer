@@ -41,6 +41,8 @@ class MediaDetector:
     @staticmethod
     def _parent_info(filepath: str) -> dict:
         parent = Path(filepath).parent.name
+        if re.match(r'^Specials?$', parent, re.IGNORECASE):
+            return {'base': parent, 'season': 0}
         m = re.search(r'\s(\d{1,2})$', parent)
         if m:
             return {'base': parent[:m.start()], 'season': int(m.group(1))}
@@ -82,6 +84,13 @@ class MediaDetector:
             )
             level1_result['level'] = 2
             level1_result['method'] = 'regex+api'
+            level1_result['tmdb_id'] = api_result.get('tmdb_id')
+            level1_result['tv_details'] = api_result.get('tv_details')
+            # Apply episode offset correction from API
+            if api_result.get('episode') is not None:
+                level1_result['episode'] = api_result['episode']
+            if api_result.get('season') is not None:
+                level1_result['season'] = api_result['season']
             logger.debug(f"Level 1+API enriched: {api_result['title']} for {filename}")
             return level1_result
 
@@ -196,8 +205,20 @@ class MediaDetector:
             clean = self._clean_for_api(filename)
             if not clean:
                 return None
-            result = asyncio.run(self.api_detector.search(clean))
+            result = asyncio.run(self.api_detector._fetch_and_details(clean))
             if result:
+                season_eps = result.get('tv_details', {}).get('seasons', {})
+                parent = self._parent_info(filepath)
+                ep = result.get('episode')
+                sn = result.get('season')
+                # Apply episode offset from API season info
+                if ep is not None and sn is not None and season_eps:
+                    offset = sum(season_eps.get(s, 0) for s in range(1, sn))
+                    if offset > 0 and ep > offset:
+                        result['episode'] = ep - offset
+                # Use parent folder season if API has no season but parent does
+                if sn is None and parent['season'] is not None:
+                    result['season'] = parent['season']
                 return {
                     'type': result['type'],
                     'title': result['title'],
@@ -210,7 +231,7 @@ class MediaDetector:
                     'level': 2,
                     'method': 'api',
                     'tmdb_id': result.get('tmdb_id'),
- 
+                    'tv_details': result.get('tv_details'),
                 }
         except Exception as e:
             logger.warning(f"API lookup failed for '{filename}': {e}")

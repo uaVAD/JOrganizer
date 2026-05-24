@@ -23,6 +23,40 @@ class MetadataAPI:
             await self._session.close()
             self._session = None
 
+    async def get_tv_details(self, tmdb_id: int) -> dict | None:
+        """Get season/episode counts for a TV show from TMDB."""
+        try:
+            session = await self._get_session()
+            url = f"https://api.themoviedb.org/3/tv/{tmdb_id}"
+            params = {"api_key": self.tmdb_key, "language": "en-US"}
+            async with session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+            seasons = {}
+            for s in data.get("seasons") or []:
+                sn = s.get("season_number")
+                ec = s.get("episode_count", 0)
+                if sn is not None and sn > 0:
+                    seasons[sn] = ec
+            return {
+                "seasons": seasons,
+                "total_episodes": data.get("number_of_episodes", 0),
+                "total_seasons": data.get("number_of_seasons", 0),
+            }
+        except Exception as e:
+            logger.error(f"TMDB tv details error: {e}")
+            return None
+
+    async def _fetch_and_details(self, title: str) -> dict | None:
+        """Search + optionally fetch tv season details in one async call."""
+        result = await self._search_tmdb(title)
+        if result and result.get('type') in ('tv', 'anime') and result.get('tmdb_id'):
+            details = await self.get_tv_details(result['tmdb_id'])
+            if details:
+                result['tv_details'] = details
+        return result
+
     async def search(self, title: str, year: int | None = None) -> dict | None:
         """Search TMDB for movie or TV show."""
         if not title:
