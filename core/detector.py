@@ -12,14 +12,18 @@ class MediaDetector:
     # Regex patterns for detection
     TV_PATTERN = re.compile(
         r'(?:s|season)\s*(\d{1,2})\s*[xe]\s*(\d{1,2})'
-        r'|(\d{1,2})[x](\d{1,2})'
+        r'|\b(\d{1,2})[x](\d{1,2})\b'
         r'|(?:season\s*\d{1,2}\s+episode\s*\d{1,2})',
         re.IGNORECASE
     )
 
     SEASON_ONLY = re.compile(r'(?:s|season)\s*(\d{1,2})(?:\s|$|[.\-])', re.IGNORECASE)
 
-    ANIME_EPISODE = re.compile(r'[-_\s]+(\d{1,3})(?=\s*(?:\[|\.|$))', re.IGNORECASE)
+    ANIME_EPISODE = re.compile(
+        r'(?:[-_\s]+|(?<!\w)(?:vol|volume|part|ova|episode|ep|special)\s*\.?\s*)'
+        r'(\d{1,3})(?=\s*(?:\[|\.|$))',
+        re.IGNORECASE
+    )
     ANIME_PATTERN = re.compile(
         r'\.anime\.'
         r'|(?:attack[\s._-]+on[\s._-]+titan|one[\s._-]+piece|naruto|bleach|dragon[\s._-]+ball|death[\s._-]+note|hunter[\s._-]+x[\s._-]+hunter|my[\s._-]+hero[\s._-]+academia|demon[\s._-]+slayer|one[\s._-]+punch[\s._-]+man|steins[\s._-]+gate|code[\s._-]+geass|fullmetal[\s._-]+alchemist|cowboy[\s._-]+bebop|sailor[\s._-]+moon|pocket[\s._-]+monsters|pokemon|fairy[\s._-]+tail|boku[\s._-]+no[\s._-]+hero[\s._-]+academia|shingeki[\s._-]+no[\s._-]+kyojin|boku[\s._-]+no[\s._-]+psycho[\s._-]+denda|jojo)',
@@ -72,7 +76,7 @@ class MediaDetector:
         # Level 2: API lookup for English title enrichment
         api_result = None
         if not quick and self._needs_enrichment(filename):
-            api_result = self._level2_api_lookup(filename, filepath)
+            api_result = self._level2_api_lookup(filename, filepath, level1_result)
 
         if level1_result and api_result and api_result.get('title'):
             # Merge API English title into regex result
@@ -198,7 +202,7 @@ class MediaDetector:
 
         return None
 
-    def _level2_api_lookup(self, filename: str, filepath: str) -> dict | None:
+    def _level2_api_lookup(self, filename: str, filepath: str, level1_result: dict | None = None) -> dict | None:
         """Level 2: Metadata API lookup (TMDB/TVDB/OMDb)."""
         try:
             import asyncio
@@ -209,13 +213,16 @@ class MediaDetector:
             if result:
                 season_eps = result.get('tv_details', {}).get('seasons', {})
                 parent = self._parent_info(filepath)
-                ep = result.get('episode')
-                sn = result.get('season')
+                # Use Level 1 file episode/season for offset correction
+                ep = result.get('episode') or (level1_result.get('episode') if level1_result else None)
+                sn = result.get('season') or (level1_result.get('season') if level1_result else None)
                 # Apply episode offset from API season info
-                if ep is not None and sn is not None and season_eps:
+                if ep is not None and sn is not None and season_eps and sn > 1:
                     offset = sum(season_eps.get(s, 0) for s in range(1, sn))
-                    if offset > 0 and ep > offset:
+                    season_ep_count = season_eps.get(sn, ep)
+                    if offset > 0 and ep > offset and ep <= offset + season_ep_count:
                         result['episode'] = ep - offset
+                        result['season'] = sn
                 # Use parent folder season if API has no season but parent does
                 if sn is None and parent['season'] is not None:
                     result['season'] = parent['season']
@@ -240,7 +247,7 @@ class MediaDetector:
 
     def _clean_for_api(self, filename: str) -> str:
         cleaned = re.sub(r'[sS]\d{1,2}[eEx]\d{1,2}', '', filename)
-        cleaned = re.sub(r'\d{1,2}x\d{1,2}', '', cleaned)
+        cleaned = re.sub(r'\b\d{1,2}x\d{1,2}\b', '', cleaned)
         cleaned = re.sub(r'season\s*\d+\s*episode\s*\d+', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'[-_\s]+\d{1,3}$', '', cleaned)
         cleaned = re.sub(r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch)', '', cleaned, flags=re.IGNORECASE)
@@ -248,14 +255,14 @@ class MediaDetector:
         cleaned = re.sub(r'\(.*?\)', '', cleaned)
         cleaned = re.sub(r'[-_.\s]+', ' ', cleaned).strip()
         cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
-        cleaned = re.sub(r'\b(19|20)\d{2}\b', '', cleaned).strip()
+        cleaned = re.sub(r'\b(?:19|20)\d{2}\b(?!x\d)', '', cleaned).strip()
         cleaned = re.sub(r'\s+\d{1,2}$', '', cleaned).strip()
         return cleaned if cleaned else filename
 
     def _clean_title(self, filename: str, season: str | None, episode: str | None) -> str:
         """Clean filename to extract title."""
         cleaned = re.sub(r'[sx]\d{1,2}[xe]\d{1,2}', '', filename, flags=re.IGNORECASE)
-        cleaned = re.sub(r'\d{1,2}x\d{1,2}', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\b\d{1,2}x\d{1,2}\b', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'season\s*\d+\s*episode\s*\d+', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'(2160p|1080p|720p|480p|WEBRip|BluRay|WEB-DL|HDTV|\d{4})', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\[.*?\]', '', cleaned)
@@ -266,7 +273,7 @@ class MediaDetector:
 
     def _extract_year(self, filename: str) -> int | None:
         """Extract year from filename."""
-        match = re.search(r'(19|20)\d{2}', filename)
+        match = re.search(r'\b(?:19|20)\d{2}\b(?!x\d)', filename)
         if match:
             return int(match.group(0))
         return None
