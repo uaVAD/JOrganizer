@@ -22,6 +22,7 @@ class Organizer:
         show_folder = f"{title} ({year})" if year else title
 
         if season is not None:
-            return destination / show_folder / f"Season {season:02d}" / new_filename
+            season_folder = "Specials" if season == 0 else f"Season {season:02d}"
+            return destination / show_folder / season_folder / new_filename
 
         return destination / show_folder / new_filename

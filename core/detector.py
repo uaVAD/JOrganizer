@@ -73,6 +73,14 @@ class MediaDetector:
                     rf'\s{parent["season"]}$', '', level1_result['title']
                 )
 
+        # Inject grandparent folder as show title for season/specials folders
+        if level1_result and parent['season'] is not None:
+            gp = Path(filepath).parent.parent
+            if gp and gp.name and parent['base'].lower() in ('season', 'specials', 'special'):
+                gp_name = gp.name.replace('_', ' ').replace('.', ' ').strip()
+                if gp_name:
+                    level1_result['title'] = gp_name
+
         # Level 2: API lookup for English title enrichment
         api_result = None
         if not quick and self._needs_enrichment(filename):
@@ -105,6 +113,33 @@ class MediaDetector:
         if api_result:
             logger.debug(f"Level 2 detected: {api_result['type']} for {filename}")
             return api_result
+
+        # Fallback: file in show root folder → detect as special of that show
+        if level1_result is None and parent['season'] is None and parent['base']:
+            # Check if parent folder contains season subdirs → it's a show root
+            try:
+                has_season_sibling = any(
+                    c.is_dir() and re.search(r'\s\d{1,2}$', c.name)
+                    for c in path.parent.iterdir()
+                )
+            except PermissionError:
+                has_season_sibling = False
+            if has_season_sibling:
+                gp_name = parent['base'].replace('_', ' ').replace('.', ' ').strip()
+                level1_result = {
+                    'type': 'tv',
+                    'title': gp_name,
+                    'season': 0,
+                    'episode': None,
+                    'year': None,
+                    'quality': None,
+                    'source': None,
+                    'confidence': 0.4,
+                    'level': 1,
+                    'method': 'regex',
+                }
+                logger.debug(f"Fallback show-root special: {gp_name} for {filename}")
+                return level1_result
 
         # Level 3: Ask user
         return {
