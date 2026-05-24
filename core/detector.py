@@ -81,38 +81,45 @@ class MediaDetector:
                 if gp_name:
                     level1_result['title'] = gp_name
 
-        # Level 2: API lookup for English title enrichment
+        # Level 2: API lookup for episode offset correction + title enrichment
         api_result = None
-        if not quick and self._needs_enrichment(filename):
-            api_result = self._level2_api_lookup(filename, filepath, level1_result)
+        if not quick:
+            needs_api = False
+            # Always run API if episode looks like continuous numbering (>12 in season 2+)
+            if level1_result and (level1_result.get('episode') or 0) > 12 and (level1_result.get('season') or 0) > 1:
+                needs_api = True
+            # Also run API for title enrichment on non-Latin filenames
+            if self._needs_enrichment(filename):
+                needs_api = True
+            if needs_api:
+                api_result = self._level2_api_lookup(filename, filepath, level1_result)
 
-        if level1_result and api_result and api_result.get('title'):
-            # Merge API English title into regex result
-            level1_result['title'] = api_result['title']
-            level1_result['year'] = api_result.get('year', level1_result.get('year'))
-            level1_result['confidence'] = max(
-                level1_result.get('confidence', 0),
-                api_result.get('confidence', 0)
-            )
-            level1_result['level'] = 2
-            level1_result['method'] = 'regex+api'
-            level1_result['tmdb_id'] = api_result.get('tmdb_id')
-            level1_result['tv_details'] = api_result.get('tv_details')
-            # Apply episode offset correction from API
-            if api_result.get('episode') is not None:
-                level1_result['episode'] = api_result['episode']
-            if api_result.get('season') is not None:
-                level1_result['season'] = api_result['season']
-            logger.debug(f"Level 1+API enriched: {api_result['title']} for {filename}")
-            return level1_result
+        if api_result and api_result.get('title'):
+            if level1_result:
+                # Merge API data into Level 1 result
+                level1_result['title'] = api_result['title']
+                level1_result['year'] = api_result.get('year', level1_result.get('year'))
+                level1_result['confidence'] = max(
+                    level1_result.get('confidence', 0),
+                    api_result.get('confidence', 0)
+                )
+                level1_result['level'] = 2
+                level1_result['method'] = 'regex+api'
+                level1_result['tmdb_id'] = api_result.get('tmdb_id')
+                level1_result['tv_details'] = api_result.get('tv_details')
+                if api_result.get('episode') is not None:
+                    level1_result['episode'] = api_result['episode']
+                if api_result.get('season') is not None:
+                    level1_result['season'] = api_result['season']
+                logger.debug(f"Level 1+API enriched: {api_result['title']} for {filename}")
+                return level1_result
+            else:
+                logger.debug(f"Level 2 detected: {api_result['type']} for {filename}")
+                return api_result
 
         if level1_result:
             logger.debug(f"Level 1 detected: {level1_result['type']} for {filename}")
             return level1_result
-
-        if api_result:
-            logger.debug(f"Level 2 detected: {api_result['type']} for {filename}")
-            return api_result
 
         # Fallback: file in show root folder → detect as special of that show
         if level1_result is None and parent['season'] is None and parent['base']:
@@ -253,9 +260,14 @@ class MediaDetector:
                 sn = result.get('season') or (level1_result.get('season') if level1_result else None)
                 # Apply episode offset from API season info
                 if ep is not None and sn is not None and season_eps and sn > 1:
-                    offset = sum(season_eps.get(s, 0) for s in range(1, sn))
-                    season_ep_count = season_eps.get(sn, ep)
-                    if offset > 0 and ep > offset and ep <= offset + season_ep_count:
+                    max_tmdb_sn = max(season_eps.keys(), default=0)
+                    if sn > max_tmdb_sn:
+                        # Target season not in TMDB — estimate 12 episodes per prior season
+                        offset = 12 * (sn - 1)
+                    else:
+                        offset = sum(season_eps.get(s, 0) for s in range(1, sn))
+                    season_ep_count = season_eps.get(sn, 12)
+                    if offset > 0 and ep > offset:
                         result['episode'] = ep - offset
                         result['season'] = sn
                 # Use parent folder season if API has no season but parent does
