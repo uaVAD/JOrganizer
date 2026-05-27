@@ -1,10 +1,5 @@
 {
-    "jellyfin_url": "",
-    "jellyfin_api_key": "",
     "tmdb_api_key": "",
-    "tvdb_api_key": "",
-    "omdb_api_key": "",
-    "default_destination": "",
     "watch_folders": [],
     "duplicate_mode": "ask",
     "theme": "dark"

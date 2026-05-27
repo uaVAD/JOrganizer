@@ -2,7 +2,7 @@ import re
 import logging
 from pathlib import Path
 from collections import defaultdict
-from core.detector import MediaDetector
+from core.detector import MediaDetector, EXTRANEOUS_TAGS
 from core.scanner import Scanner
 
 logger = logging.getLogger(__name__)
@@ -189,6 +189,7 @@ class FolderAnalyzer:
         if api_result:
             result['type'] = api_result['type']
             result['tmdb_id'] = api_result.get('tmdb_id')
+            result['tmdb_title'] = api_result.get('tmdb_title')
             result['year'] = api_result.get('year')
             result['confidence'] = api_result.get('confidence', 0.0)
 
@@ -197,6 +198,7 @@ class FolderAnalyzer:
             api_result = self._try_anilist(cleaned)
             if api_result:
                 result['type'] = api_result['type']
+                result['tmdb_title'] = api_result.get('tmdb_title')
                 result['year'] = api_result.get('year')
                 result['confidence'] = api_result.get('confidence', 0.0)
 
@@ -213,7 +215,7 @@ class FolderAnalyzer:
 
     def _clean_for_tmdb(self, name: str, year: int | None = None) -> str:
         """Clean folder name for TMDB search."""
-        cleaned = re.sub(r'\b(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch)\b', '', name, flags=re.IGNORECASE)
+        cleaned = re.sub(rf'\b({EXTRANEOUS_TAGS})\b', '', name, flags=re.IGNORECASE)
         cleaned = re.sub(r'\[.*?\]', '', cleaned)
         cleaned = re.sub(r'\(.*?\)', '', cleaned)
         cleaned = re.sub(r'[-_.\s]+', ' ', cleaned).strip()

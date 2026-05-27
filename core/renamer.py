@@ -31,10 +31,10 @@ class Renamer:
         season = detection_result.get('season')
         episode = detection_result.get('episode')
 
-        if media_type in ('movie', 'cartoon'):
-            name = self.rename_movie(title, year)
-        elif season is not None and episode is not None:
+        if season is not None and episode is not None:
             name = self.rename_tv(title, season, episode, year)
+        elif media_type in ('movie', 'cartoon'):
+            name = self.rename_movie(title, year)
         elif media_type in ('tv', 'anime'):
             name = self.rename_tv(title, season if season is not None else 1, episode if episode is not None else 1, year)
         else:

@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 from datetime import datetime
 
@@ -8,9 +9,9 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QFileDialog, QGroupBox,
     QLineEdit, QProgressBar, QMessageBox, QHeaderView,
     QTabWidget, QComboBox, QDialog, QApplication, QAbstractItemView,
-    QScrollArea,
+    QScrollArea, QTreeWidgetItemIterator,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject, QEvent
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject, QEvent, QSize
 from PyQt6.QtGui import QFont, QColor, QIcon
 
 from config.settings import COLORS, DB_PATH, BASE_DIR
@@ -78,6 +79,8 @@ class MainWindow(QMainWindow):
     CATEGORY_KEYS = ['anime', 'cartoon', 'movie', 'tv']
     CATEGORY_LABELS = ['Anime', 'Cartoons', 'Movies', 'TV Shows']
 
+    TYPE_OPTIONS = ['movie', 'tv', 'anime', 'cartoon']
+
     def __init__(self):
         super().__init__()
         self.setMinimumSize(1200, 800)
@@ -92,6 +95,7 @@ class MainWindow(QMainWindow):
         self.dry_run_preview = []
         self.operation_thread = None
         self._tree_data = None
+        self._type_overrides: dict[str, str] = {}
         self._category_dest = {k: '' for k in self.CATEGORY_KEYS}
         self._init_ui()
         icon_path = Path(__file__).parent.parent / 'assets' / 'JO.ico'
@@ -604,31 +608,38 @@ class MainWindow(QMainWindow):
     def _add_tree_node(self, parent, node):
         """Recursively build tree: category nodes (with children) or folder nodes (with files)."""
         mtype = node['media_type']
-        if mtype == 'unknown':
-            type_label = 'UNKNOWN [TMDB: N/A]'
-        else:
-            type_label = mtype.upper()
-        display_name = node.get('tmdb_title') or node['name']
+        display_name = node['name']
+        folder_path = str(node['path'])
 
         item = QTreeWidgetItem(parent)
         item.setText(0, display_name)
-        item.setText(1, type_label)
-        item.setData(0, Qt.ItemDataRole.UserRole, str(node['path']))
+        item.setData(0, Qt.ItemDataRole.UserRole, folder_path)
         item.setData(1, Qt.ItemDataRole.UserRole, 'folder')
-        color = self.TYPE_COLORS.get(mtype, '#6B7280')
-        item.setForeground(1, QColor(color))
-        # Expand only category nodes (have children), collapse leaf folders
         children = node.get('children')
+
         if children:
             item.setExpanded(True)
-        else:
-            item.setExpanded(False)
-
-        # Category/intermediate nodes with sub-children
-        if children:
+            type_label = mtype.upper() if mtype != 'unknown' else 'UNKNOWN [TMDB: N/A]'
+            item.setText(1, type_label)
+            color = self.TYPE_COLORS.get(mtype, '#6B7280')
+            item.setForeground(1, QColor(color))
             for child in children:
                 self._add_tree_node(item, child)
             return
+
+        item.setExpanded(False)
+        # Leaf folder node — add type dropdown
+        combo = QComboBox()
+        for t in self.TYPE_OPTIONS:
+            combo.addItem(t.upper(), t)
+        idx = combo.findData(mtype)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        item.setSizeHint(1, QSize(0, 28))
+        self.file_tree.setItemWidget(item, 1, combo)
+        combo.currentIndexChanged.connect(lambda i, p=folder_path, c=combo: self._on_folder_type_changed(p, c))
+        color = self.TYPE_COLORS.get(mtype, '#6B7280')
+        combo.setStyleSheet(f'QComboBox {{ color: {color}; background-color: transparent; border: none; font-weight: bold; }} QComboBox::drop-down {{ border: none; width: 16px; }} QComboBox QAbstractItemView {{ background-color: {COLORS["panel"]}; color: white; selection-background-color: {COLORS["accent"]}; }}')
 
         # Folder nodes with direct files
         font = item.font(0)
@@ -647,7 +658,6 @@ class MainWindow(QMainWindow):
             else:
                 file_item.setText(1, mtype.upper())
 
-            # Always use folder's media type for all child files
             file_item.setForeground(1, QColor(self.TYPE_COLORS.get(mtype, '#6B7280')))
 
     def _refresh_scan(self):
@@ -706,6 +716,120 @@ class MainWindow(QMainWindow):
                 paths, total_bytes = self._collect_files_from_item(child, paths, total_bytes)
         return paths, total_bytes
 
+    def _on_folder_type_changed(self, folder_path: str, combo: QComboBox):
+        """Handle manual type override from tree dropdown."""
+        new_type = combo.currentData()
+        if not new_type:
+            return
+        old_type = self._type_overrides.get(folder_path)
+        if old_type == new_type:
+            return
+        self._type_overrides[folder_path] = new_type
+        self._log(f'Type override: {Path(folder_path).name} -> {new_type}')
+
+        # Update node in _tree_data
+        self._update_node_type(folder_path, new_type)
+
+        # Update combo text color
+        new_color = self.TYPE_COLORS.get(new_type, '#6B7280')
+        combo.setStyleSheet(f'QComboBox {{ color: {new_color}; background-color: transparent; border: none; font-weight: bold; }} QComboBox::drop-down {{ border: none; width: 16px; }} QComboBox QAbstractItemView {{ background-color: {COLORS["panel"]}; color: white; selection-background-color: {COLORS["accent"]}; }}')
+
+        # Re-color child file items
+        self._recolor_folder_files(folder_path, new_type)
+
+    def _update_node_type(self, folder_path: str, new_type: str):
+        """Recursively update media_type in _tree_data for the given folder path."""
+        if not self._tree_data:
+            return
+
+        def walk(nodes):
+            for node in nodes:
+                if str(node['path']) == folder_path:
+                    node['media_type'] = new_type
+                    for f in node.get('files', []):
+                        f['type'] = new_type
+                    return True
+                if walk(node.get('children', [])):
+                    return True
+            return False
+
+        walk([self._tree_data])
+
+    def _recolor_folder_files(self, folder_path: str, new_type: str):
+        """Update the color of all file items under the given folder."""
+        color = self.TYPE_COLORS.get(new_type, '#6B7280')
+        for i in range(self.file_tree.topLevelItemCount()):
+            root = self.file_tree.topLevelItem(i)
+            self._recolor_item_recursive(root, folder_path, color, new_type)
+
+    def _recolor_item_recursive(self, item, folder_path: str, color, new_type: str):
+        if item.data(0, Qt.ItemDataRole.UserRole) == folder_path:
+            for ci in range(item.childCount()):
+                child = item.child(ci)
+                if child.data(1, Qt.ItemDataRole.UserRole) == 'file':
+                    child.setForeground(1, QColor(color))
+                    child.setText(1, new_type.upper())
+            return
+        for ci in range(item.childCount()):
+            self._recolor_item_recursive(item.child(ci), folder_path, color, new_type)
+
+    SUBFOLDER_RX = re.compile(r'^(?:Season|Saison|Temporada|Volume|Vol)\s*\d{1,2}$|^Specials?$', re.IGNORECASE)
+
+    def _get_type_for_folder(self, folder_path: str) -> str | None:
+        """Get media_type for a folder path from _tree_data (respects overrides)."""
+        path = Path(folder_path)
+        if self.SUBFOLDER_RX.match(path.name):
+            path = path.parent
+
+        fp_str = str(path)
+        override = self._type_overrides.get(fp_str)
+        if override:
+            return override
+        root = self._tree_data
+        if not root:
+            return None
+
+        def find(nodes):
+            for n in nodes:
+                np = n.get('path')
+                if np and str(np) == fp_str:
+                    mt = n.get('media_type')
+                    if mt and mt != 'unknown':
+                        return mt
+                    return None
+                kids = n.get('children')
+                if kids:
+                    result = find(kids)
+                    if result:
+                        return result
+            return None
+
+        return find([root])
+
+    def _apply_type_overrides(self, preview: list[dict]) -> list[dict]:
+        """Apply folder types from tree (auto + manual override) to preview results."""
+        for item in preview:
+            src = item.get('source', '')
+            if not src:
+                continue
+            parent = str(Path(src).parent)
+            new_type = self._get_type_for_folder(parent)
+            if not new_type:
+                continue
+            det = item.get('detection')
+            if not det:
+                continue
+            if det.get('type') == new_type:
+                continue
+            det['type'] = new_type
+            item['type'] = new_type
+            if self.ctrl.renamer and self.ctrl.organizer:
+                new_name = self.ctrl.renamer.generate_new_filename(det, src)
+                new_target = self.ctrl.organizer.get_target_path(det, new_name)
+                item['dest'] = str(new_target)
+                item['target'] = str(new_target)
+        return preview
+
     def _start_preview(self):
         t = self.tr.tr
         if not self.selected_files:
@@ -716,6 +840,7 @@ class MainWindow(QMainWindow):
             return
         dest = next((Path(p) for p in self._category_dest.values() if p), Path())
         self.dry_run_preview = self.ctrl.preview(self.selected_files, dest)
+        self._apply_type_overrides(self.dry_run_preview)
         self._log(f'Preview: {len(self.dry_run_preview)} actions previewed')
         self.execute_btn.setEnabled(True)
         self._show_preview_dialog()
@@ -893,6 +1018,7 @@ class MainWindow(QMainWindow):
             return
         dest = next((Path(p) for p in self._category_dest.values() if p), Path())
         self.dry_run_preview = self.ctrl.preview(self.selected_files, dest)
+        self._apply_type_overrides(self.dry_run_preview)
 
         unknown = [item for item in self.dry_run_preview if item.get('type') == 'unknown' and item.get('dest')]
         if unknown:

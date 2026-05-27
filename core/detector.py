@@ -5,6 +5,15 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# Shared patterns
+SUBFOLDER = re.compile(r'^(?:Season|Saison|Temporada|Volume|Vol)\s*\d{1,2}$|^Specials?$', re.IGNORECASE)
+
+EXTRANEOUS_TAGS = (
+    r'2160p|1080p|720p|480p|4k|3d|'
+    r'WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|'
+    r'Complete|Batch|Ukr|Eng|Rus|Multi'
+)
+
 
 class MediaDetector:
     """Detect media type from filename using multiple levels."""
@@ -57,7 +66,7 @@ class MediaDetector:
         """Clean grandparent folder name to extract show title."""
         gp_name = folder_name.replace('_', ' ').replace('.', ' ').strip()
         gp_name = re.sub(
-            r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch|Ukr|Eng|Rus|Multi)',
+            rf'({EXTRANEOUS_TAGS})',
             '', gp_name, flags=re.IGNORECASE
         )
         gp_name = re.sub(r'\[.*?\]', '', gp_name)
@@ -75,9 +84,10 @@ class MediaDetector:
 
         for fp in file_paths:
             fp = str(fp)
-            gp = Path(fp).parent.parent if Path(fp).parent.parent.name else None
-            key = str(gp or Path(fp).parent)
-            groups[key].append(fp)
+            parent = Path(fp).parent
+            if SUBFOLDER.match(parent.name) and parent.parent:
+                parent = parent.parent
+            groups[str(parent)].append(fp)
 
         results = {}
         for folder_key, fps in groups.items():
@@ -113,6 +123,7 @@ class MediaDetector:
                 file_parent = self._parent_info(fp)
                 level1 = self._level1_regex(filename, fp, file_parent)
 
+
                 if level1:
                     # Inject parent folder season
                     if file_parent['season'] is not None:
@@ -145,7 +156,7 @@ class MediaDetector:
                                     level1['episode'] = ep - offset
                                     level1['season'] = sn
 
-                results[fp] = level1 or self._api_only_result(api_result, file_parent, filename) if api_result else {'type': 'unknown', 'title': filename, 'confidence': 0.1, 'level': 1, 'method': 'unknown'}
+                results[fp] = level1 or (self._api_only_result(api_result, file_parent, filename) if api_result else {'type': 'unknown', 'title': filename, 'confidence': 0.1, 'level': 1, 'method': 'unknown'})
         return results
 
     def _api_only_result(self, api_result: dict, parent: dict, filename: str) -> dict:
@@ -196,7 +207,7 @@ class MediaDetector:
                 gp_name = gp.name.replace('_', ' ').replace('.', ' ').strip()
                 if gp_name:
                     gp_name = re.sub(
-                        r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch|Ukr|Eng|Rus|Multi)',
+                        rf'({EXTRANEOUS_TAGS})',
                         '', gp_name, flags=re.IGNORECASE
                     )
                     gp_name = re.sub(r'\[.*?\]', '', gp_name)
@@ -356,8 +367,9 @@ class MediaDetector:
             }
 
         # Check if movie (has year or looks like movie name)
+        # Skip if filename also has season indicator (S01, Season)
         year = self._extract_year(filename)
-        if year:
+        if year and not re.search(r'[sS]\d{1,2}', filename) and not re.search(r'\bseason\b', filename, re.IGNORECASE):
             quality = self.QUALITY_PATTERN.search(filename)
             source = self.SOURCE_PATTERN.search(filename)
 
@@ -446,7 +458,7 @@ class MediaDetector:
         cleaned = re.sub(r'\b\d{1,2}x\d{1,2}\b', '', cleaned)
         cleaned = re.sub(r'season\s*\d+\s*episode\s*\d+', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'[-_\s]+\d{1,3}$', '', cleaned)
-        cleaned = re.sub(r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch|Ukr|Eng|Rus|Multi)', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(rf'({EXTRANEOUS_TAGS})', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\[.*?\]', '', cleaned)
         cleaned = re.sub(r'\(.*?\)', '', cleaned)
         cleaned = re.sub(r'[-_.\s]+', ' ', cleaned).strip()
@@ -462,10 +474,11 @@ class MediaDetector:
         cleaned = re.sub(r'[sx]\d{1,2}[xe]\d{1,2}', '', filename, flags=re.IGNORECASE)
         cleaned = re.sub(r'\b\d{1,2}x\d{1,2}\b', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'season\s*\d+\s*episode\s*\d+', '', cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r'(2160p|1080p|720p|480p|WEBRip|BluRay|WEB-DL|HDTV|\d{4})', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(rf'({EXTRANEOUS_TAGS}|\d{{4}})', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\[.*?\]', '', cleaned)
         cleaned = re.sub(r'\(.*?\)', '', cleaned)
         cleaned = re.sub(r'[-_\.\s]+', ' ', cleaned).strip()
+        cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
         cleaned = cleaned.title().strip()
         return cleaned
 

@@ -11,7 +11,7 @@ class TestDetector:
 
     def test_detect_tv_show_with_season_episode(self, detector):
         """Test detection of TV show with season/episode pattern."""
-        result = detector.detect("My.Show.S01E05.1080p.BluRay.mp4")
+        result = detector.detect("My.Show.S01E05.1080p.BluRay.mp4", quick=True)
 
         assert result['type'] == 'tv'
         assert result['season'] == 1
@@ -25,7 +25,7 @@ class TestDetector:
 
     def test_detect_tv_show_with_x_format(self, detector):
         """Test detection using X format (e.g., S01X05)."""
-        result = detector.detect("Show.Name.S01X05.WEBRip.mp4")
+        result = detector.detect("Show.Name.S01X05.WEBRip.mp4", quick=True)
 
         assert result['type'] == 'tv'
         assert result['season'] == 1
@@ -33,7 +33,7 @@ class TestDetector:
 
     def test_detect_movie_with_year(self, detector):
         """Test detection of movie by year."""
-        result = detector.detect("Movie.Title.2025.1080p.WEB-DL.mkv")
+        result = detector.detect("Movie.Title.2025.1080p.WEB-DL.mkv", quick=True)
 
         assert result['type'] == 'movie'
         assert result['year'] == 2025
@@ -43,7 +43,7 @@ class TestDetector:
 
     def test_detect_anime_by_keyword(self, detector):
         """TV pattern wins over anime keyword at file level; TMDB corrects at folder level."""
-        result = detector.detect("Attack.on.Titan.S01E01.720p.mp4")
+        result = detector.detect("Attack.on.Titan.S01E01.720p.mp4", quick=True)
 
         assert result['type'] == 'tv'
         assert result['season'] == 1
@@ -51,7 +51,7 @@ class TestDetector:
 
     def test_detect_unknown_media_type(self, detector):
         """Test that unknown media returns type='unknown' with level=3."""
-        result = detector.detect("Mystery.File.Name.mp4")
+        result = detector.detect("Mystery.File.Name.mp4", quick=True)
 
         assert result['type'] == 'unknown'
         assert result['level'] == 3
@@ -60,7 +60,7 @@ class TestDetector:
 
     def test_detect_anime_with_brackets(self, detector):
         """TV pattern wins over bracket patterns at file level; TMDB corrects at folder level."""
-        result = detector.detect("[SubGroup] Anime.Name - S02E03 [1080p].mkv")
+        result = detector.detect("[SubGroup] Anime.Name - S02E03 [1080p].mkv", quick=True)
 
         assert result['type'] == 'tv'
         assert result['season'] == 2

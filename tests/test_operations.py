@@ -33,8 +33,12 @@ class TestOperations:
         src.write_text("sample content for testing")
         return src
 
-    def test_dry_run_returns_preview(self, ops_manager, temp_dir, sample_file, organizer, renamer, detector):
-        """Test that dry run returns preview without moving files."""
+    def _make_preview(self, ops_manager, files, organizer, renamer, detector):
+        ops_manager.set_pipeline(detector, renamer, organizer)
+        return ops_manager.preview(files)
+
+    def test_preview_returns_plan(self, ops_manager, temp_dir, sample_file, organizer, renamer, detector):
+        """Test that preview returns plan without moving files."""
         files = [{
             'path': str(sample_file),
             'name': sample_file.name,
@@ -43,13 +47,13 @@ class TestOperations:
             'parent': str(temp_dir),
         }]
 
-        preview = ops_manager.dry_run(files, organizer, renamer, detector)
+        plan = self._make_preview(ops_manager, files, organizer, renamer, detector)
 
-        assert len(preview) == 1
-        assert preview[0]['original'] == str(sample_file)
-        assert preview[0]['target'] is not None
-        assert preview[0]['result'] is not None
-        assert sample_file.exists(), "File should still exist after dry run"
+        assert len(plan) == 1
+        assert plan[0]['source'] == str(sample_file)
+        assert plan[0]['target'] is not None
+        assert plan[0]['detection'] is not None
+        assert sample_file.exists(), "File should still exist after preview"
 
     def test_execute_moves_file(self, ops_manager, temp_dir, sample_file, organizer, renamer, detector):
         """Test that execute actually moves the file."""
@@ -61,8 +65,8 @@ class TestOperations:
             'parent': str(temp_dir),
         }]
 
-        preview = ops_manager.dry_run(files, organizer, renamer, detector)
-        results = ops_manager.execute(preview)
+        plan = self._make_preview(ops_manager, files, organizer, renamer, detector)
+        results = ops_manager.execute(plan)
 
         assert len(results) == 1
         assert results[0]['success'] is True
@@ -79,8 +83,8 @@ class TestOperations:
             'parent': str(temp_dir),
         }]
 
-        preview = ops_manager.dry_run(files, organizer, renamer, detector)
-        ops_manager.execute(preview)
+        plan = self._make_preview(ops_manager, files, organizer, renamer, detector)
+        ops_manager.execute(plan)
 
         history = ops_manager.get_history()
         assert len(history) >= 1
@@ -96,8 +100,8 @@ class TestOperations:
             'parent': str(temp_dir),
         }]
 
-        preview = ops_manager.dry_run(files, organizer, renamer, detector)
-        results = ops_manager.execute(preview)
+        plan = self._make_preview(ops_manager, files, organizer, renamer, detector)
+        results = ops_manager.execute(plan)
         target = results[0]['target']
 
         undo_results = ops_manager.undo()

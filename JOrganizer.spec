@@ -10,8 +10,8 @@ hiddenimports += collect_submodules('aiohttp')
 
 version_info = VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(0, 3, 4, 0),
-        prodvers=(0, 3, 4, 0),
+        filevers=(0, 4, 1, 0),
+        prodvers=(0, 4, 1, 0),
         mask=0x3f,
         flags=0x0,
         OS=0x40004,
@@ -25,8 +25,8 @@ version_info = VSVersionInfo(
                 StringStruct('FileDescription',
                     'JOrganizer - AI Media Organizer & Auto Renamer (Jellyfin Compatible)'),
                 StringStruct('ProductName', 'JOrganizer'),
-                StringStruct('FileVersion', '0.3.4'),
-                StringStruct('ProductVersion', '0.3.4'),
+                StringStruct('FileVersion', '0.4.1'),
+                StringStruct('ProductVersion', '0.4.1'),
                 StringStruct('LegalCopyright', '\u00a9 2026 Vadym Krypko'),
                 StringStruct('OriginalFilename', 'JOrganizer.exe'),
                 StringStruct('InternalName', 'JOrganizer'),
@@ -38,7 +38,7 @@ version_info = VSVersionInfo(
 
 a = Analysis(
     ['main.py'],
-    pathex=[],
+    pathex=['C:\\Users\\ukrva\\Documents\\opencode\\Jellyfin_Organizer'],
     binaries=[],
     datas=[('assets/JO.ico', 'assets'), ('config/init.json', 'config'), ('languages', 'languages'), ('assets/preview.svg', 'assets'), ('assets/rename.svg', 'assets'), ('assets/undo.svg', 'assets'), ('assets/refresh.svg', 'assets')],
     hiddenimports=hiddenimports,

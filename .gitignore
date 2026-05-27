@@ -29,3 +29,6 @@ Thumbs.db
 
 # Test cache
 .pytest_cache/
+
+# GitHub release artifacts
+github_release/
