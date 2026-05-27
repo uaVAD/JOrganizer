@@ -10,8 +10,8 @@ hiddenimports += collect_submodules('aiohttp')
 
 version_info = VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(0, 4, 1, 0),
-        prodvers=(0, 4, 1, 0),
+        filevers=(0, 5, 0, 0),
+        prodvers=(0, 5, 0, 0),
         mask=0x3f,
         flags=0x0,
         OS=0x40004,
@@ -25,8 +25,8 @@ version_info = VSVersionInfo(
                 StringStruct('FileDescription',
                     'JOrganizer - AI Media Organizer & Auto Renamer (Jellyfin Compatible)'),
                 StringStruct('ProductName', 'JOrganizer'),
-                StringStruct('FileVersion', '0.4.1'),
-                StringStruct('ProductVersion', '0.4.1'),
+                StringStruct('FileVersion', '0.5.0'),
+                StringStruct('ProductVersion', '0.5.0'),
                 StringStruct('LegalCopyright', '\u00a9 2026 Vadym Krypko'),
                 StringStruct('OriginalFilename', 'JOrganizer.exe'),
                 StringStruct('InternalName', 'JOrganizer'),
