@@ -954,8 +954,7 @@ class MainWindow(QMainWindow):
     def _undo_last(self):
         t = self.tr.tr
         try:
-            result = self.ctrl.undo_last()
-            results = [result] if result else []
+            results = self.ctrl.undo_last()
             count = len([r for r in results if r.get('success')])
             self._log(f'Undo: {count} operation(s) reverted')
             self.status_label.setText(t('ui.status_undo').format(count))

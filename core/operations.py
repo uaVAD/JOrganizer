@@ -119,6 +119,9 @@ class OperationsManager:
     def execute(self, preview: list[dict], force: bool = False) -> list[dict]:
         """Execute operations from preview. Returns results."""
         results = []
+        now = datetime.now()
+        timestamp = now.isoformat()
+        action_id = int(now.timestamp() * 1000)
 
         for item in preview:
             original = item.get('source', item.get('original'))
@@ -129,8 +132,7 @@ class OperationsManager:
                 continue
 
             try:
-                timestamp = datetime.now().isoformat()
-                self.db.add_operation(original, target, timestamp)
+                self.db.add_operation(original, target, timestamp, action_id)
 
                 target_path = Path(target)
                 target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,12 +160,14 @@ class OperationsManager:
         return results
 
     def undo_last(self):
-        """Undo the last operation."""
-        operations = self.db.get_all_operations()
+        """Undo the last action (all files from the most recent execute)."""
+        max_id = self.db.get_max_action_id()
+        if max_id is None:
+            return []
+        operations = self.db.get_operations_by_action(max_id)
         if not operations:
-            return None
-        last_op = operations[0]
-        return self._undo_operation(last_op)
+            return []
+        return [self._undo_operation(op) for op in operations]
 
     def undo(self, operation_id: int | None = None) -> list[dict]:
         """Undo operations. If operation_id is None, undo all."""

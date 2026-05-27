@@ -23,7 +23,8 @@ class Database:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     old_path TEXT NOT NULL,
                     new_path TEXT NOT NULL,
-                    timestamp TEXT NOT NULL
+                    timestamp TEXT NOT NULL,
+                    action_id INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS settings (
@@ -33,16 +34,38 @@ class Database:
                 );
             """)
 
+            # Migrate old table that lacks action_id column
+            try:
+                self.conn.execute("ALTER TABLE operations ADD COLUMN action_id INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+
+            # Session-only: clear operations from previous session
+            self.conn.execute("DELETE FROM operations")
+
     # --- Operations ---
 
-    def add_operation(self, old_path: str, new_path: str, timestamp: str) -> int:
+    def add_operation(self, old_path: str, new_path: str, timestamp: str, action_id: int = 0) -> int:
         """Record a file operation. Returns operation id."""
         cur = self.conn.execute(
-            "INSERT INTO operations (old_path, new_path, timestamp) VALUES (?, ?, ?)",
-            (old_path, new_path, timestamp),
+            "INSERT INTO operations (old_path, new_path, timestamp, action_id) VALUES (?, ?, ?, ?)",
+            (old_path, new_path, timestamp, action_id),
         )
         self.conn.commit()
         return cur.lastrowid
+
+    def get_operations_by_action(self, action_id: int) -> list[dict]:
+        """Get all operations for a given action_id."""
+        rows = self.conn.execute(
+            "SELECT id, old_path, new_path, timestamp, action_id FROM operations WHERE action_id = ? ORDER BY id",
+            (action_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_max_action_id(self) -> int | None:
+        """Get the highest action_id in operations."""
+        row = self.conn.execute("SELECT MAX(action_id) as max_id FROM operations").fetchone()
+        return row["max_id"] if row and row["max_id"] is not None else None
 
     def get_operation(self, operation_id: int) -> dict | None:
         """Get single operation by id."""
