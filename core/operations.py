@@ -39,6 +39,12 @@ class OperationsManager:
         """Simulate operations without making changes. Returns preview."""
         file_list = self._normalize_files(files)
         preview = []
+        all_paths = [f['path'] for f in file_list]
+
+        # Batch detect — one API call per show folder
+        batch_results = {}
+        if self.detector:
+            batch_results = self.detector.detect_batch(all_paths)
 
         for file_info in file_list:
             try:
@@ -46,8 +52,10 @@ class OperationsManager:
                 new_name = src_path.name
                 target = Path(destination) / src_path.parent.name / new_name if destination else None
 
-                if self.detector and self.renamer and self.organizer:
-                    result = self.detector.detect(file_info['path'])
+                result = batch_results.get(file_info['path'])
+                if not result and self.detector:
+                    result = self.detector.detect(file_info['path'], quick=True)
+                if self.renamer and self.organizer and result:
                     new_name = self.renamer.generate_new_filename(result, file_info['path'])
                     target = self.organizer.get_target_path(result, new_name)
 

@@ -53,6 +53,121 @@ class MediaDetector:
             return {'base': parent[:m.start()], 'season': int(m.group(1))}
         return {'base': parent, 'season': None}
 
+    def _clean_grandparent_name(self, folder_name: str) -> str:
+        """Clean grandparent folder name to extract show title."""
+        gp_name = folder_name.replace('_', ' ').replace('.', ' ').strip()
+        gp_name = re.sub(
+            r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch|Ukr|Eng|Rus|Multi)',
+            '', gp_name, flags=re.IGNORECASE
+        )
+        gp_name = re.sub(r'\[.*?\]', '', gp_name)
+        gp_name = re.sub(r'\(.*?\)', '', gp_name)
+        gp_name = re.sub(r'\b(?:19|20)\d{2}\b', '', gp_name)
+        gp_name = re.sub(r's\d{1,2}', '', gp_name, flags=re.IGNORECASE)
+        gp_name = re.sub(r'[-_\s]+', ' ', gp_name).strip()
+        gp_name = re.sub(r'\s{2,}', ' ', gp_name).strip()
+        return gp_name
+
+    def detect_batch(self, file_paths: list[str | Path]) -> dict[str, dict]:
+        """Detect multiple files with one API call per show folder."""
+        from collections import defaultdict
+        groups = defaultdict(list)
+
+        for fp in file_paths:
+            fp = str(fp)
+            gp = Path(fp).parent.parent if Path(fp).parent.parent.name else None
+            key = str(gp or Path(fp).parent)
+            groups[key].append(fp)
+
+        results = {}
+        for folder_key, fps in groups.items():
+            gp_folder = Path(folder_key)
+            parent = self._parent_info(fps[0])
+            is_season_folder = parent['season'] is not None and parent['base'].lower() in ('season', 'specials', 'special')
+            show_title = self._clean_grandparent_name(gp_folder.name) if is_season_folder and gp_folder.name else Path(fps[0]).parent.name
+
+            # One API call per show folder (cached)
+            import asyncio
+            api_result = None
+            if show_title:
+                clean = self._clean_for_api(show_title) or show_title
+                api_result = self.api_cache.get(clean)
+                if api_result is None:
+                    api_result = asyncio.run(self.api_detector._fetch_and_details(clean))
+                    try:
+                        asyncio.run(self.api_detector.close())
+                    except:
+                        pass
+                    if api_result:
+                        self.api_cache[clean] = api_result
+
+            season_eps = {}
+            api_title = None
+            if api_result:
+                season_eps = api_result.get('tv_details', {}).get('seasons', {})
+                api_title = api_result.get('title')
+
+            for fp in fps:
+                path = Path(fp)
+                filename = path.stem
+                file_parent = self._parent_info(fp)
+                level1 = self._level1_regex(filename, fp, file_parent)
+
+                if level1:
+                    # Inject parent folder season
+                    if file_parent['season'] is not None:
+                        has_explicit = 'season' in filename.lower() or re.search(r'[sS]\d{1,2}[eEx]', filename)
+                        if level1.get('season') is None or (level1['season'] == 1 and not has_explicit):
+                            level1['season'] = file_parent['season']
+                        if file_parent['base'].lower() in level1['title'].lower():
+                            level1['title'] = re.sub(rf'\s{file_parent["season"]}$', '', level1['title'])
+
+                    # Inject grandparent title
+                    if file_parent['season'] is not None and is_season_folder and gp_folder.name:
+                        level1['title'] = show_title
+
+                    # Use API title if available
+                    if api_title:
+                        level1['title'] = api_title
+                        level1['tmdb_id'] = api_result.get('tmdb_id')
+                        level1['tv_details'] = api_result.get('tv_details')
+                        level1['level'] = 2
+                        level1['method'] = 'regex+api'
+                        level1['confidence'] = max(level1.get('confidence', 0), api_result.get('confidence', 0.9))
+
+                        # Apply offset correction
+                        ep = level1.get('episode')
+                        sn = level1.get('season')
+                        if ep is not None and sn is not None and season_eps and sn > 1:
+                            if sn in season_eps:
+                                offset = sum(season_eps.get(s, 0) for s in range(1, sn))
+                                if offset > 0 and ep > offset:
+                                    level1['episode'] = ep - offset
+                                    level1['season'] = sn
+
+                results[fp] = level1 or self._api_only_result(api_result, file_parent, filename) if api_result else {'type': 'unknown', 'title': filename, 'confidence': 0.1, 'level': 1, 'method': 'unknown'}
+        return results
+
+    def _api_only_result(self, api_result: dict, parent: dict, filename: str) -> dict:
+        """Build result from API only (no Level 1 match)."""
+        season_eps = api_result.get('tv_details', {}).get('seasons', {})
+        season = parent['season']
+        if season is None and season_eps:
+            valid = [s for s, ec in season_eps.items() if ec > 0]
+            season = min(valid) if valid else 1
+        return {
+            'type': api_result.get('type', 'tv'),
+            'title': api_result['title'],
+            'season': season if season else 1,
+            'episode': 1,
+            'year': api_result.get('year'),
+            'confidence': api_result.get('confidence', 0.9),
+            'level': 2,
+            'method': 'api',
+            'tmdb_id': api_result.get('tmdb_id'),
+            'tv_details': api_result.get('tv_details'),
+        }
+
     def detect(self, filepath: str | Path, quick: bool = False) -> dict:
         """Detect media type using all levels. Returns result dict."""
         path = Path(filepath)
