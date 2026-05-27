@@ -79,24 +79,27 @@ class MediaDetector:
             if gp and gp.name and parent['base'].lower() in ('season', 'specials', 'special'):
                 gp_name = gp.name.replace('_', ' ').replace('.', ' ').strip()
                 if gp_name:
-                    level1_result['title'] = gp_name
+                    gp_name = re.sub(
+                        r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch|Ukr|Eng|Rus|Multi)',
+                        '', gp_name, flags=re.IGNORECASE
+                    )
+                    gp_name = re.sub(r'\[.*?\]', '', gp_name)
+                    gp_name = re.sub(r'\(.*?\)', '', gp_name)
+                    gp_name = re.sub(r'\b(?:19|20)\d{2}\b', '', gp_name)
+                    gp_name = re.sub(r's\d{1,2}', '', gp_name, flags=re.IGNORECASE)
+                    gp_name = re.sub(r'[-_\s]+', ' ', gp_name).strip()
+                    gp_name = re.sub(r'\s{2,}', ' ', gp_name).strip()
+                    if gp_name:
+                        level1_result['title'] = gp_name
 
-        # Level 2: API lookup for episode offset correction + title enrichment
+        # Level 2: API lookup for title enrichment + episode offset correction
         api_result = None
         if not quick:
-            needs_api = False
-            # Always run API if episode looks like continuous numbering (>12 in season 2+)
-            if level1_result and (level1_result.get('episode') or 0) > 12 and (level1_result.get('season') or 0) > 1:
-                needs_api = True
-            # Also run API for title enrichment on non-Latin filenames
-            if self._needs_enrichment(filename):
-                needs_api = True
-            if needs_api:
-                api_result = self._level2_api_lookup(filename, filepath, level1_result)
+            # Always query API when not quick (cache handles dedup)
+            api_result = self._level2_api_lookup(filename, filepath, level1_result)
 
         if api_result and api_result.get('title'):
             if level1_result:
-                # Merge API data into Level 1 result
                 level1_result['title'] = api_result['title']
                 level1_result['year'] = api_result.get('year', level1_result.get('year'))
                 level1_result['confidence'] = max(
@@ -112,12 +115,25 @@ class MediaDetector:
                 if api_result.get('season') is not None:
                     level1_result['season'] = api_result['season']
                 logger.debug(f"Level 1+API enriched: {api_result['title']} for {filename}")
-                return level1_result
             else:
                 logger.debug(f"Level 2 detected: {api_result['type']} for {filename}")
                 return api_result
+            return level1_result
 
         if level1_result:
+            # Root-folder files with high episode → treat as special of that show
+            ep = level1_result.get('episode')
+            if parent['season'] is None and (ep or 0) > 12:
+                try:
+                    has_season_sibling = any(
+                        c.is_dir() and re.search(r'\s\d{1,2}$', c.name)
+                        for c in path.parent.iterdir()
+                    )
+                except PermissionError:
+                    has_season_sibling = False
+                if has_season_sibling:
+                    level1_result['season'] = 0
+                    level1_result['episode'] = None
             logger.debug(f"Level 1 detected: {level1_result['type']} for {filename}")
             return level1_result
 
@@ -248,10 +264,15 @@ class MediaDetector:
         """Level 2: Metadata API lookup (TMDB/TVDB/OMDb)."""
         try:
             import asyncio
-            clean = self._clean_for_api(filename)
+            clean = self._clean_for_api(filename, level1_result.get('title') if level1_result else None)
             if not clean:
                 return None
             result = asyncio.run(self.api_detector._fetch_and_details(clean))
+            # Close session to prevent "Event loop is closed" on subsequent calls
+            try:
+                asyncio.run(self.api_detector.close())
+            except:
+                pass
             if result:
                 season_eps = result.get('tv_details', {}).get('seasons', {})
                 parent = self._parent_info(filepath)
@@ -260,16 +281,21 @@ class MediaDetector:
                 sn = result.get('season') or (level1_result.get('season') if level1_result else None)
                 # Apply episode offset from API season info
                 if ep is not None and sn is not None and season_eps and sn > 1:
-                    max_tmdb_sn = max(season_eps.keys(), default=0)
-                    if sn > max_tmdb_sn:
-                        # Target season not in TMDB — estimate 12 episodes per prior season
-                        offset = 12 * (sn - 1)
-                    else:
+                    if sn in season_eps:
                         offset = sum(season_eps.get(s, 0) for s in range(1, sn))
-                    season_ep_count = season_eps.get(sn, 12)
-                    if offset > 0 and ep > offset:
-                        result['episode'] = ep - offset
-                        result['season'] = sn
+                        if offset > 0 and ep > offset:
+                            result['episode'] = ep - offset
+                            result['season'] = sn
+                    else:
+                        # File's season doesn't exist in API — keep folder's season, use API only for title
+                        pass
+                # API found a show but no season from file or API — use first available
+                if result.get('season') is None and season_eps and (level1_result is None or level1_result.get('season') is None):
+                    valid = [s for s, ec in season_eps.items() if ec > 0]
+                    if valid:
+                        result['season'] = min(valid)
+                        if level1_result is None:
+                            result['episode'] = result.get('episode', 1)
                 # Use parent folder season if API has no season but parent does
                 if sn is None and parent['season'] is not None:
                     result['season'] = parent['season']
@@ -292,18 +318,20 @@ class MediaDetector:
 
         return None
 
-    def _clean_for_api(self, filename: str) -> str:
+    def _clean_for_api(self, filename: str, fallback: str | None = None) -> str:
         cleaned = re.sub(r'[sS]\d{1,2}[eEx]\d{1,2}', '', filename)
         cleaned = re.sub(r'\b\d{1,2}x\d{1,2}\b', '', cleaned)
         cleaned = re.sub(r'season\s*\d+\s*episode\s*\d+', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'[-_\s]+\d{1,3}$', '', cleaned)
-        cleaned = re.sub(r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch)', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'(2160p|1080p|720p|480p|4k|3d|WEBRip|BluRay|WEB-DL|HDTV|DVDRip|HDRip|CAM|TS|R5|DVD|BD|REMUX|IMAX|Complete|Batch|Ukr|Eng|Rus|Multi)', '', cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r'\[.*?\]', '', cleaned)
         cleaned = re.sub(r'\(.*?\)', '', cleaned)
         cleaned = re.sub(r'[-_.\s]+', ' ', cleaned).strip()
         cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
         cleaned = re.sub(r'\b(?:19|20)\d{2}\b(?!x\d)', '', cleaned).strip()
         cleaned = re.sub(r'\s+\d{1,2}$', '', cleaned).strip()
+        if not cleaned and fallback:
+            return fallback
         return cleaned if cleaned else filename
 
     def _clean_title(self, filename: str, season: str | None, episode: str | None) -> str:

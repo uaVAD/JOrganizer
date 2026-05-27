@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QTabWidget, QComboBox, QDialog, QApplication, QAbstractItemView,
     QScrollArea,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QObject, QEvent
 from PyQt6.QtGui import QFont, QColor, QIcon
 
 from config.settings import COLORS, DB_PATH, BASE_DIR
@@ -40,6 +40,30 @@ class OperationThread(QThread):
         except Exception as e:
             logger.error(f"Operation failed: {e}")
             self.error.emit(str(e))
+
+
+class _StretchFilter(QObject):
+    def __init__(self, dialog, header, stretch_cols, arrow=2):
+        super().__init__(dialog)
+        self._h = header
+        self._cols = stretch_cols
+        self._arrow = arrow
+        self._h.setStretchLastSection(False)
+        dialog.installEventFilter(self)
+        QTimer.singleShot(0, self._restretch)
+
+    def _restretch(self):
+        avail = self._h.width() - self._h.sectionSize(self._arrow)
+        total = sum(self._h.sectionSize(i) for i in self._cols)
+        if total > 0:
+            r = avail / total
+            for i in self._cols:
+                self._h.resizeSection(i, max(80, int(self._h.sectionSize(i) * r)))
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Resize:
+            self._restretch()
+        return super().eventFilter(obj, event)
 
 
 class MainWindow(QMainWindow):
@@ -306,7 +330,8 @@ class MainWindow(QMainWindow):
 
     def _apply_translations(self):
         t = self.tr.tr
-        self.setWindowTitle(t('ui.app_title'))
+        from config.settings import VERSION
+        self.setWindowTitle(f"JOrganizer {VERSION}")
         self.tabs.setTabText(0, t('ui.tab_scan'))
         self.tabs.setTabText(1, t('ui.tab_dest_folders'))
         self.tabs.setTabText(2, t('ui.tab_settings'))
@@ -697,22 +722,30 @@ class MainWindow(QMainWindow):
 
     def _show_preview_dialog(self):
         t = self.tr.tr
+        from PyQt6.QtCore import QSettings
+        settings = QSettings('JOrganizer', 'JOrganizer')
         dialog = QDialog(self)
         dialog.setWindowTitle(t('ui.preview_changes'))
         dialog.setMinimumSize(900, 450)
-        dialog.resize(1000, 500)
+        geo = settings.value('preview_geometry')
+        if geo:
+            dialog.restoreGeometry(geo)
+        else:
+            dialog.resize(1000, 500)
         layout = QVBoxLayout(dialog)
 
         table = QTreeWidget()
         table.setColumnCount(5)
         table.setHeaderLabels([t('ui.preview_source'), t('ui.preview_name'), '', t('ui.preview_dest'), t('ui.preview_rename')])
         table.setAlternatingRowColors(True)
-        table.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        table.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        table.header().resizeSection(2, 30)
-        table.header().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        table.header().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header = table.header()
+        for i in (0, 1, 3, 4):
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        header.resizeSection(2, 30)
+        _StretchFilter(dialog, header, (0, 1, 3, 4))
         table.setRootIsDecorated(False)
+        table.setSortingEnabled(True)
 
         for action in self.dry_run_preview:
             src_path = Path(action.get('source', ''))
@@ -734,6 +767,10 @@ class MainWindow(QMainWindow):
         close_btn = QPushButton(t('ui.close'))
         close_btn.clicked.connect(dialog.close)
         layout.addWidget(close_btn)
+        dialog.finished.connect(lambda: (
+            settings.setValue('preview_geometry', dialog.saveGeometry()),
+            settings.setValue('preview_col_widths', [header.sectionSize(i) for i in range(5)]),
+        ))
         dialog.exec()
 
     def _show_unrecognized_dialog(self, unknown_items: list) -> list | None:
@@ -855,8 +892,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, t('ui.dlg_warning'), t('ui.msg_select_dest'))
             return
         dest = next((Path(p) for p in self._category_dest.values() if p), Path())
-        if not self.dry_run_preview:
-            self.dry_run_preview = self.ctrl.preview(self.selected_files, dest)
+        self.dry_run_preview = self.ctrl.preview(self.selected_files, dest)
 
         unknown = [item for item in self.dry_run_preview if item.get('type') == 'unknown' and item.get('dest')]
         if unknown:
@@ -918,7 +954,8 @@ class MainWindow(QMainWindow):
     def _undo_last(self):
         t = self.tr.tr
         try:
-            results = self.ctrl.undo()
+            result = self.ctrl.undo_last()
+            results = [result] if result else []
             count = len([r for r in results if r.get('success')])
             self._log(f'Undo: {count} operation(s) reverted')
             self.status_label.setText(t('ui.status_undo').format(count))

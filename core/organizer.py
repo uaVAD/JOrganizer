@@ -19,7 +19,7 @@ class Organizer:
         season = detection_result.get('season')
         year = detection_result.get('year')
 
-        show_folder = f"{title} ({year})" if year else title
+        show_folder = f"{title} ({year})" if (year and detection_result.get('type') == 'movie') else title
 
         if season is not None:
             season_folder = "Specials" if season == 0 else f"Season {season:02d}"

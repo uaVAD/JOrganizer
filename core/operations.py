@@ -75,6 +75,45 @@ class OperationsManager:
                     'target': None,
                 })
 
+        preview = self._assign_special_numbers(preview)
+        return preview
+
+    def _assign_special_numbers(self, preview: list[dict]) -> list[dict]:
+        """Assign sequential episode numbers to specials to avoid overwrites."""
+        from collections import defaultdict
+        from pathlib import Path
+        import re
+
+        specials_by_dir = defaultdict(list)
+        for item in preview:
+            det = item.get('detection')
+            if det and det.get('season') == 0 and det.get('episode') is None:
+                target_dir = Path(item['target']).parent if item.get('target') else None
+                if target_dir:
+                    specials_by_dir[str(target_dir)].append(item)
+
+        for dir_path, items in specials_by_dir.items():
+            target_dir = Path(dir_path)
+            used = set()
+            if target_dir.exists():
+                for f in target_dir.iterdir():
+                    if f.is_file():
+                        m = re.search(r'S00E(\d+)', f.stem, re.IGNORECASE)
+                        if m:
+                            used.add(int(m.group(1)))
+            next_ep = 1
+            for item in items:
+                while next_ep in used:
+                    next_ep += 1
+                det = item['detection']
+                det['episode'] = next_ep
+                used.add(next_ep)
+                next_ep += 1
+                if self.renamer and self.organizer:
+                    new_name = self.renamer.generate_new_filename(det, item['original'])
+                    target = self.organizer.get_target_path(det, new_name)
+                    item['target'] = str(target)
+                    item['dest'] = str(target)
         return preview
 
     def execute(self, preview: list[dict], force: bool = False) -> list[dict]:
@@ -98,10 +137,12 @@ class OperationsManager:
                 shutil.move(str(original), str(target))
 
                 src_parent = Path(original).parent
-                try:
-                    src_parent.rmdir()
-                except OSError:
-                    pass
+                for _ in range(5):
+                    try:
+                        src_parent.rmdir()
+                        src_parent = src_parent.parent
+                    except OSError:
+                        break
 
                 results.append({'original': original, 'target': target, 'success': True})
                 logger.info(f"Moved: {original} -> {target}")
