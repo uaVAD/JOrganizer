@@ -27,10 +27,11 @@ class OperationsManager:
         result = []
         for f in files:
             if isinstance(f, Path):
-                result.append({'path': str(f), 'name': f.name})
+                p = str(f)
+                result.append({'path': p, 'name': Path(p).name})
             elif isinstance(f, str):
-                p = Path(f)
-                result.append({'path': f, 'name': p.name})
+                p = str(Path(f))
+                result.append({'path': p, 'name': Path(p).name})
             elif isinstance(f, dict):
                 result.append(f)
         return result
@@ -52,7 +53,7 @@ class OperationsManager:
                 new_name = src_path.name
                 target = Path(destination) / src_path.parent.name / new_name if destination else None
 
-                result = batch_results.get(file_info['path'])
+                result = batch_results.get(str(src_path))
                 if not result and self.detector:
                     result = self.detector.detect(file_info['path'], quick=True)
                 if self.renamer and self.organizer and result:
