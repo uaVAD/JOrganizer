@@ -28,15 +28,16 @@ class OperationThread(QThread):
     finished = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, preview, operations_manager, force=False):
+    def __init__(self, preview, operations_manager, force=False, source_root=None):
         super().__init__()
         self.preview = preview
         self.operations_manager = operations_manager
         self.force = force
+        self.source_root = source_root
 
     def run(self):
         try:
-            results = self.operations_manager.execute(self.preview, self.force)
+            results = self.operations_manager.execute(self.preview, self.force, source_root=self.source_root)
             self.finished.emit(results)
         except Exception as e:
             logger.error(f"Operation failed: {e}")
@@ -1039,7 +1040,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText(t('ui.status_executing'))
         self.execute_btn.setEnabled(False)
         self.preview_btn.setEnabled(False)
-        self.operation_thread = OperationThread(self.dry_run_preview, self.ctrl.operations_manager)
+        src_root = self.source_input.text().strip()
+        self.operation_thread = OperationThread(self.dry_run_preview, self.ctrl.operations_manager, source_root=src_root)
         self.operation_thread.progress.connect(self._on_progress)
         self.operation_thread.log.connect(self._log)
         self.operation_thread.finished.connect(self._on_execution_finished)

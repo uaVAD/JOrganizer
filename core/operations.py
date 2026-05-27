@@ -125,12 +125,14 @@ class OperationsManager:
                     item['dest'] = str(target)
         return preview
 
-    def execute(self, preview: list[dict], force: bool = False) -> list[dict]:
+    def execute(self, preview: list[dict], force: bool = False, source_root: str | None = None) -> list[dict]:
         """Execute operations from preview. Returns results."""
         results = []
         now = datetime.now()
         timestamp = now.isoformat()
         action_id = int(now.timestamp() * 1000)
+
+        root_resolved = str(Path(source_root).resolve()).lower() if source_root else None
 
         for item in preview:
             original = item.get('source', item.get('original'))
@@ -150,6 +152,8 @@ class OperationsManager:
                 src_parent = Path(original).parent
                 for _ in range(5):
                     try:
+                        if root_resolved and str(src_parent.resolve()).lower() == root_resolved:
+                            break
                         src_parent.rmdir()
                         src_parent = src_parent.parent
                     except OSError:

@@ -36,8 +36,8 @@ class AppController:
     def preview(self, files: list, dest: Path) -> list[dict]:
         return self.operations_manager.preview(files, dest)
 
-    def execute_preview(self, preview: list) -> list[dict]:
-        return self.operations_manager.execute(preview)
+    def execute_preview(self, preview: list, source_root: str | None = None) -> list[dict]:
+        return self.operations_manager.execute(preview, source_root=source_root)
 
     def undo(self, operation_id: int | None = None) -> list[dict]:
         return self.operations_manager.undo(operation_id)
