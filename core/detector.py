@@ -36,6 +36,7 @@ class MediaDetector:
     def __init__(self):
         from api.metadata import MetadataAPI
         self.api_detector = MetadataAPI()
+        self.api_cache: dict[str, dict] = {}
 
     NON_LATIN = re.compile(r'[^\x00-\x7F]')
 
@@ -267,13 +268,20 @@ class MediaDetector:
             clean = self._clean_for_api(filename, level1_result.get('title') if level1_result else None)
             if not clean:
                 return None
-            result = asyncio.run(self.api_detector._fetch_and_details(clean))
-            # Close session to prevent "Event loop is closed" on subsequent calls
-            try:
-                asyncio.run(self.api_detector.close())
-            except:
-                pass
+
+            # Cache API results by search query — all files from same show reuse one call
+            result = self.api_cache.get(clean)
+            if result is None:
+                result = asyncio.run(self.api_detector._fetch_and_details(clean))
+                try:
+                    asyncio.run(self.api_detector.close())
+                except:
+                    pass
+                if result:
+                    self.api_cache[clean] = result
+
             if result:
+                season_eps = result.get('tv_details', {}).get('seasons', {})
                 season_eps = result.get('tv_details', {}).get('seasons', {})
                 parent = self._parent_info(filepath)
                 # Use Level 1 file episode/season for offset correction
